@@ -2,18 +2,19 @@ import streamlit as st
 import requests
 import pandas as pd
 import concurrent.futures
+import time
 from datetime import datetime
 
-st.set_page_config(page_title="CWV Monitor", layout="wide")
+st.set_page_config(page_title="CWV Monitor - Free", layout="wide")
 
-st.title("🚀 Core Web Vitals Monitor")
-st.write("Check Mobile + Desktop CWV for bulk URLs")
+st.title("🚀 Core Web Vitals Monitor (FREE)")
+st.write("Upload CSV with column name: url")
 
-API_KEY = st.text_input("Enter Google PageSpeed API Key", type="password")
-
-uploaded_file = st.file_uploader("Upload CSV (Column name must be: url)", type=["csv"])
+uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
 
 strategies = ["mobile", "desktop"]
+
+# -------- CWV CHECK FUNCTION -------- #
 
 def check_cwv(url, strategy):
 
@@ -22,7 +23,6 @@ def check_cwv(url, strategy):
     params = {
         "url": url,
         "strategy": strategy,
-        "key": API_KEY,
         "category": "performance"
     }
 
@@ -43,14 +43,14 @@ def check_cwv(url, strategy):
             "Device": strategy,
             "Performance Score": round(score, 0),
             "LCP (s)": round(lcp, 2),
-            "CLS": round(cls, 2),
+            "CLS": round(cls, 3),
             "INP (ms)": round(inp, 0),
             "FCP (s)": round(fcp, 2),
             "TTFB (ms)": round(ttfb, 0),
             "LCP Status": "Pass" if lcp <= 2.5 else "Fail",
             "CLS Status": "Pass" if cls <= 0.1 else "Fail",
             "INP Status": "Pass" if inp <= 200 else "Fail",
-            "Date": datetime.now().date()
+            "Checked On": datetime.now().date()
         }
 
     except:
@@ -60,30 +60,35 @@ def check_cwv(url, strategy):
             "Error": "Failed"
         }
 
-if uploaded_file and API_KEY:
+# -------- BULK RUN -------- #
 
-    urls = pd.read_csv(uploaded_file)["url"].dropna().tolist()
+if uploaded_file:
+
+    df_urls = pd.read_csv(uploaded_file)
+
+    if "url" not in df_urls.columns:
+        st.error("CSV must have column name: url")
+        st.stop()
+
+    urls = df_urls["url"].dropna().tolist()
 
     st.info(f"Checking {len(urls)} URLs (Mobile + Desktop)...")
 
     results = []
-
     progress = st.progress(0)
 
     total_tasks = len(urls) * 2
     completed = 0
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = []
+    for url in urls:
+        for strategy in strategies:
+            result = check_cwv(url, strategy)
+            results.append(result)
 
-        for u in urls:
-            for s in strategies:
-                futures.append(executor.submit(check_cwv, u, s))
-
-        for future in concurrent.futures.as_completed(futures):
-            results.append(future.result())
             completed += 1
             progress.progress(completed / total_tasks)
+
+            time.sleep(2)   # FREE MODE RATE LIMIT PROTECTION
 
     df = pd.DataFrame(results)
 
@@ -91,7 +96,7 @@ if uploaded_file and API_KEY:
 
     st.dataframe(df)
 
-    st.subheader("📊 Average Performance Score")
+    st.subheader("📊 Avg Performance Score")
     st.bar_chart(df.groupby("Device")["Performance Score"].mean())
 
     csv = df.to_csv(index=False).encode("utf-8")
