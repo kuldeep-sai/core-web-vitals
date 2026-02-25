@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import pandas as pd
-import concurrent.futures
 import time
 from datetime import datetime
 
@@ -14,8 +13,6 @@ uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
 
 strategies = ["mobile", "desktop"]
 
-# -------- CWV CHECK FUNCTION -------- #
-
 def check_cwv(url, strategy):
 
     endpoint = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
@@ -27,10 +24,18 @@ def check_cwv(url, strategy):
     }
 
     try:
-        r = requests.get(endpoint, params=params).json()
+        r = requests.get(endpoint, params=params)
 
-        audits = r["lighthouseResult"]["audits"]
-        score = r["lighthouseResult"]["categories"]["performance"]["score"] * 100
+        if r.status_code != 200:
+            return {"URL": url, "Device": strategy, "Error": "Blocked"}
+
+        data = r.json()
+
+        if "lighthouseResult" not in data:
+            return {"URL": url, "Device": strategy, "Error": "No Data"}
+
+        audits = data["lighthouseResult"]["audits"]
+        score = data["lighthouseResult"]["categories"]["performance"]["score"] * 100
 
         lcp = audits["largest-contentful-paint"]["numericValue"] / 1000
         cls = audits["cumulative-layout-shift"]["numericValue"]
@@ -47,20 +52,14 @@ def check_cwv(url, strategy):
             "INP (ms)": round(inp, 0),
             "FCP (s)": round(fcp, 2),
             "TTFB (ms)": round(ttfb, 0),
-            "LCP Status": "Pass" if lcp <= 2.5 else "Fail",
-            "CLS Status": "Pass" if cls <= 0.1 else "Fail",
-            "INP Status": "Pass" if inp <= 200 else "Fail",
+            "Status": "Success",
             "Checked On": datetime.now().date()
         }
 
     except:
-        return {
-            "URL": url,
-            "Device": strategy,
-            "Error": "Failed"
-        }
+        return {"URL": url, "Device": strategy, "Error": "Failed"}
 
-# -------- BULK RUN -------- #
+# -------- RUN -------- #
 
 if uploaded_file:
 
@@ -82,13 +81,12 @@ if uploaded_file:
 
     for url in urls:
         for strategy in strategies:
-            result = check_cwv(url, strategy)
-            results.append(result)
+            results.append(check_cwv(url, strategy))
 
             completed += 1
             progress.progress(completed / total_tasks)
 
-            time.sleep(2)   # FREE MODE RATE LIMIT PROTECTION
+            time.sleep(2)
 
     df = pd.DataFrame(results)
 
@@ -96,8 +94,22 @@ if uploaded_file:
 
     st.dataframe(df)
 
-    st.subheader("📊 Avg Performance Score")
-    st.bar_chart(df.groupby("Device")["Performance Score"].mean())
+    # -------- SAFE CHART -------- #
+
+    if "Performance Score" in df.columns:
+
+        success_df = df[df.get("Status") == "Success"]
+
+        if not success_df.empty:
+
+            st.subheader("📊 Avg Performance Score")
+            st.bar_chart(success_df.groupby("Device")["Performance Score"].mean())
+
+        else:
+            st.warning("All URLs blocked by Google (rate limit). Try again later.")
+
+    else:
+        st.warning("Google blocked requests. Reduce URLs or retry later.")
 
     csv = df.to_csv(index=False).encode("utf-8")
 
