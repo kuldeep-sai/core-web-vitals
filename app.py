@@ -11,27 +11,10 @@ st.write("Upload CSV to check CWV for Mobile + Desktop")
 
 # ---------------- SAFE SECRET LOADER ---------------- #
 
-API_KEY = None
-
 try:
     API_KEY = st.secrets["PAGESPEED_API_KEY"]
 except:
     st.error("❌ PageSpeed API Key NOT FOUND")
-
-    st.info("""
-Follow these steps:
-
-1. Click Manage App (bottom right)
-2. Go to Settings → Secrets
-3. Delete everything inside the box
-4. Paste EXACTLY this:
-
-PAGESPEED_API_KEY="AIzaSyYOURKEYHERE"
-
-5. Click SAVE
-6. Click REBOOT APP
-7. Wait 20–30 seconds
-""")
     st.stop()
 
 # ---------------------------------------------------- #
@@ -39,7 +22,6 @@ PAGESPEED_API_KEY="AIzaSyYOURKEYHERE"
 strategies = ["mobile", "desktop"]
 
 # METRIC STATUS ICON LOGIC
-
 def metric_status(metric, value):
 
     if metric == "LCP":
@@ -65,6 +47,60 @@ def metric_status(metric, value):
             return "🟡"
         else:
             return "🔴"
+
+# FIX PRIORITY SCORE
+def calculate_fix_priority(lcp_icon, cls_icon, inp_icon):
+
+    score = 0
+
+    if lcp_icon == "🔴":
+        score += 3
+    elif lcp_icon == "🟡":
+        score += 0.5
+
+    if inp_icon == "🔴":
+        score += 2
+    elif inp_icon == "🟡":
+        score += 0.5
+
+    if cls_icon == "🔴":
+        score += 1
+    elif cls_icon == "🟡":
+        score += 0.5
+
+    return round(score,2)
+
+# ROOT CAUSE
+def get_root_cause(lcp_icon, inp_icon, cls_icon):
+
+    issues = []
+
+    if lcp_icon == "🔴":
+        issues.append("Slow Server / Heavy Images / Render Blocking JS")
+
+    if inp_icon == "🔴":
+        issues.append("Heavy JS Execution")
+
+    if cls_icon == "🔴":
+        issues.append("Layout Shift (Images / Ads / Fonts)")
+
+    return " | ".join(issues) if issues else "None"
+
+# FIX RECOMMENDATION
+def get_fix_recommendation(lcp_icon, inp_icon, cls_icon):
+
+    fixes = []
+
+    if lcp_icon == "🔴":
+        fixes.append("Compress Images / Use WebP / Lazy Load / Improve Server Response")
+
+    if inp_icon == "🔴":
+        fixes.append("Reduce JS Execution / Remove Unused JS / Split Bundles")
+
+    if cls_icon == "🔴":
+        fixes.append("Add Image width-height / Reserve Ad Space / Preload Fonts")
+
+    return " | ".join(fixes) if fixes else "None"
 
 
 def check_cwv(url, strategy):
@@ -107,6 +143,10 @@ def check_cwv(url, strategy):
 
         overall_cwv = "✅" if len(failed_metrics) == 0 else "❌"
 
+        fix_score = calculate_fix_priority(lcp_status, cls_status, inp_status)
+        root_cause = get_root_cause(lcp_status, inp_status, cls_status)
+        fix_reco = get_fix_recommendation(lcp_status, inp_status, cls_status)
+
         return {
             "URL": url,
             "Device": strategy,
@@ -123,6 +163,10 @@ def check_cwv(url, strategy):
 
             "CWV Overall": overall_cwv,
             "CWV Failed Due To": ", ".join(failed_metrics) if failed_metrics else "None",
+
+            "Fix Priority Score": fix_score,
+            "Likely Root Cause": root_cause,
+            "Recommended Fix": fix_reco,
 
             "FCP (s)": round(fcp, 2),
             "TTFB (ms)": round(ttfb, 0),
@@ -171,6 +215,20 @@ if uploaded_file:
 
     st.subheader("📊 Average Performance Score")
     st.bar_chart(df.groupby("Device")["Performance Score"].mean())
+
+    st.subheader("🛠️ Dev Action Report (Top URLs To Fix First)")
+
+    dev_df = df[df["CWV Overall"] == "❌"]\
+                .sort_values(by="Fix Priority Score", ascending=False)[
+                ["URL",
+                 "Device",
+                 "Fix Priority Score",
+                 "CWV Failed Due To",
+                 "Likely Root Cause",
+                 "Recommended Fix"]
+                ].head(20)
+
+    st.dataframe(dev_df)
 
     csv = df.to_csv(index=False).encode("utf-8")
 
