@@ -73,7 +73,6 @@ def root_cause(lcp, cls, inp):
     return ", ".join(issues)
 
 def check_cwv(url, strategy):
-
     endpoint = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
     params = {
         "url": url,
@@ -110,7 +109,6 @@ def check_cwv(url, strategy):
         return {"URL": url, "Device": strategy, "Score": 0}
 
 if urls:
-
     st.info(f"Checking {len(urls)} URLs (Mobile + Desktop)...")
     results = []
     progress = st.progress(0)
@@ -130,21 +128,17 @@ if urls:
             progress.progress(completed / total_tasks)
 
     df = pd.DataFrame(results)
-
     st.success("CWV Check Completed!")
 
     mobile_df = df[df["Device"]=="mobile"]
     desktop_df = df[df["Device"]=="desktop"]
 
-    col1, col2 = st.columns(2)
+    # Display one after another
+    st.subheader("📱 Mobile Report")
+    st.dataframe(mobile_df)
 
-    with col1:
-        st.subheader("📱 Mobile Report")
-        st.dataframe(mobile_df)
-
-    with col2:
-        st.subheader("💻 Desktop Report")
-        st.dataframe(desktop_df)
+    st.subheader("💻 Desktop Report")
+    st.dataframe(desktop_df)
 
     st.subheader("📊 Average Performance Score")
     st.bar_chart(df.groupby("Device")["Score"].mean())
