@@ -7,9 +7,10 @@ from datetime import datetime
 st.set_page_config(page_title="CWV Monitor", layout="wide")
 
 st.title("🚀 Core Web Vitals Monitor")
-st.write("Check Mobile + Desktop CWV for bulk URLs")
+st.write("Upload CSV to check CWV for Mobile + Desktop")
 
-API_KEY = st.text_input("Enter Google PageSpeed API Key", type="password")
+# 🔐 Secure API Key from Secrets Manager
+API_KEY = st.secrets["PAGESPEED_API_KEY"]
 
 uploaded_file = st.file_uploader("Upload CSV (Column name must be: url)", type=["csv"])
 
@@ -60,7 +61,7 @@ def check_cwv(url, strategy):
             "Error": "Failed"
         }
 
-if uploaded_file and API_KEY:
+if uploaded_file:
 
     urls = pd.read_csv(uploaded_file)["url"].dropna().tolist()
 
