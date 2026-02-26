@@ -9,8 +9,32 @@ st.set_page_config(page_title="CWV Monitor", layout="wide")
 st.title("🚀 Core Web Vitals Monitor")
 st.write("Upload CSV to check CWV for Mobile + Desktop")
 
-# 🔐 Secure API Key from Secrets Manager
-API_KEY = st.secrets["PAGESPEED_API_KEY"]
+# ---------------- SAFE SECRET LOADER ---------------- #
+
+API_KEY = None
+
+try:
+    API_KEY = st.secrets["PAGESPEED_API_KEY"]
+except:
+    st.error("❌ PageSpeed API Key NOT FOUND")
+
+    st.info("""
+Follow these steps:
+
+1. Click **Manage App** (bottom right)
+2. Go to **Settings → Secrets**
+3. Delete everything inside the box
+4. Paste EXACTLY this:
+
+PAGESPEED_API_KEY="AIzaSyYOURKEYHERE"
+
+5. Click SAVE
+6. Click REBOOT APP
+7. Wait 20–30 seconds
+""")
+    st.stop()
+
+# ---------------------------------------------------- #
 
 uploaded_file = st.file_uploader("Upload CSV (Column name must be: url)", type=["csv"])
 
