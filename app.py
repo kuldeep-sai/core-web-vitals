@@ -21,8 +21,8 @@ except:
     st.info("""
 Follow these steps:
 
-1. Click **Manage App** (bottom right)
-2. Go to **Settings → Secrets**
+1. Click Manage App (bottom right)
+2. Go to Settings → Secrets
 3. Delete everything inside the box
 4. Paste EXACTLY this:
 
@@ -36,9 +36,36 @@ PAGESPEED_API_KEY="AIzaSyYOURKEYHERE"
 
 # ---------------------------------------------------- #
 
-uploaded_file = st.file_uploader("Upload CSV (Column name must be: url)", type=["csv"])
-
 strategies = ["mobile", "desktop"]
+
+# GOOGLE CWV STATUS LOGIC
+
+def metric_status(metric, value):
+
+    if metric == "LCP":
+        if value <= 2.5:
+            return "GOOD"
+        elif value <= 4:
+            return "NEEDS IMPROVEMENT"
+        else:
+            return "POOR"
+
+    if metric == "INP":
+        if value <= 200:
+            return "GOOD"
+        elif value <= 500:
+            return "NEEDS IMPROVEMENT"
+        else:
+            return "POOR"
+
+    if metric == "CLS":
+        if value <= 0.1:
+            return "GOOD"
+        elif value <= 0.25:
+            return "NEEDS IMPROVEMENT"
+        else:
+            return "POOR"
+
 
 def check_cwv(url, strategy):
 
@@ -63,18 +90,42 @@ def check_cwv(url, strategy):
         fcp = audits["first-contentful-paint"]["numericValue"] / 1000
         ttfb = audits["server-response-time"]["numericValue"]
 
+        lcp_status = metric_status("LCP", lcp)
+        cls_status = metric_status("CLS", cls)
+        inp_status = metric_status("INP", inp)
+
+        failed_metrics = []
+
+        if lcp_status != "GOOD":
+            failed_metrics.append("LCP")
+
+        if cls_status != "GOOD":
+            failed_metrics.append("CLS")
+
+        if inp_status != "GOOD":
+            failed_metrics.append("INP")
+
+        overall_cwv = "PASS" if len(failed_metrics) == 0 else "FAIL"
+
         return {
             "URL": url,
             "Device": strategy,
             "Performance Score": round(score, 0),
+
             "LCP (s)": round(lcp, 2),
-            "CLS": round(cls, 2),
+            "LCP Status": lcp_status,
+
             "INP (ms)": round(inp, 0),
+            "INP Status": inp_status,
+
+            "CLS": round(cls, 2),
+            "CLS Status": cls_status,
+
+            "CWV Overall": overall_cwv,
+            "CWV Failed Due To": ", ".join(failed_metrics) if failed_metrics else "None",
+
             "FCP (s)": round(fcp, 2),
             "TTFB (ms)": round(ttfb, 0),
-            "LCP Status": "Pass" if lcp <= 2.5 else "Fail",
-            "CLS Status": "Pass" if cls <= 0.1 else "Fail",
-            "INP Status": "Pass" if inp <= 200 else "Fail",
             "Date": datetime.now().date()
         }
 
@@ -84,6 +135,8 @@ def check_cwv(url, strategy):
             "Device": strategy,
             "Error": "Failed"
         }
+
+uploaded_file = st.file_uploader("Upload CSV (Column name must be: url)", type=["csv"])
 
 if uploaded_file:
 
@@ -114,7 +167,28 @@ if uploaded_file:
 
     st.success("CWV Check Completed!")
 
-    st.dataframe(df)
+    st.subheader("📊 CWV Health Report")
+
+    def color_metric(val):
+        if val == "POOR":
+            return "color: red; font-weight: bold"
+        elif val == "NEEDS IMPROVEMENT":
+            return "color: orange; font-weight: bold"
+        elif val == "GOOD":
+            return "color: green; font-weight: bold"
+        return ""
+
+    def color_cwv(val):
+        if val == "FAIL":
+            return "color: red; font-weight: bold"
+        elif val == "PASS":
+            return "color: green; font-weight: bold"
+        return ""
+
+    styled_df = df.style.applymap(color_metric, subset=["LCP Status","INP Status","CLS Status"])\
+                        .applymap(color_cwv, subset=["CWV Overall"])
+
+    st.dataframe(styled_df)
 
     st.subheader("📊 Average Performance Score")
     st.bar_chart(df.groupby("Device")["Performance Score"].mean())
