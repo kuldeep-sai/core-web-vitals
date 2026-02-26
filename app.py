@@ -38,33 +38,33 @@ PAGESPEED_API_KEY="AIzaSyYOURKEYHERE"
 
 strategies = ["mobile", "desktop"]
 
-# GOOGLE CWV STATUS LOGIC
+# METRIC STATUS ICON LOGIC
 
 def metric_status(metric, value):
 
     if metric == "LCP":
         if value <= 2.5:
-            return "GOOD"
+            return "🟢"
         elif value <= 4:
-            return "NEEDS IMPROVEMENT"
+            return "🟡"
         else:
-            return "POOR"
+            return "🔴"
 
     if metric == "INP":
         if value <= 200:
-            return "GOOD"
+            return "🟢"
         elif value <= 500:
-            return "NEEDS IMPROVEMENT"
+            return "🟡"
         else:
-            return "POOR"
+            return "🔴"
 
     if metric == "CLS":
         if value <= 0.1:
-            return "GOOD"
+            return "🟢"
         elif value <= 0.25:
-            return "NEEDS IMPROVEMENT"
+            return "🟡"
         else:
-            return "POOR"
+            return "🔴"
 
 
 def check_cwv(url, strategy):
@@ -96,16 +96,16 @@ def check_cwv(url, strategy):
 
         failed_metrics = []
 
-        if lcp_status != "GOOD":
+        if lcp_status != "🟢":
             failed_metrics.append("LCP")
 
-        if cls_status != "GOOD":
+        if cls_status != "🟢":
             failed_metrics.append("CLS")
 
-        if inp_status != "GOOD":
+        if inp_status != "🟢":
             failed_metrics.append("INP")
 
-        overall_cwv = "PASS" if len(failed_metrics) == 0 else "FAIL"
+        overall_cwv = "✅" if len(failed_metrics) == 0 else "❌"
 
         return {
             "URL": url,
@@ -167,28 +167,7 @@ if uploaded_file:
 
     st.success("CWV Check Completed!")
 
-    st.subheader("📊 CWV Health Report")
-
-    def color_metric(val):
-        if val == "POOR":
-            return "color: red; font-weight: bold"
-        elif val == "NEEDS IMPROVEMENT":
-            return "color: orange; font-weight: bold"
-        elif val == "GOOD":
-            return "color: green; font-weight: bold"
-        return ""
-
-    def color_cwv(val):
-        if val == "FAIL":
-            return "color: red; font-weight: bold"
-        elif val == "PASS":
-            return "color: green; font-weight: bold"
-        return ""
-
-    styled_df = df.style.applymap(color_metric, subset=["LCP Status","INP Status","CLS Status"])\
-                        .applymap(color_cwv, subset=["CWV Overall"])
-
-    st.dataframe(styled_df)
+    st.dataframe(df)
 
     st.subheader("📊 Average Performance Score")
     st.bar_chart(df.groupby("Device")["Performance Score"].mean())
