@@ -1,140 +1,158 @@
 import streamlit as st
 import requests
 import pandas as pd
+import concurrent.futures
+from datetime import datetime
 import matplotlib.pyplot as plt
 
-st.set_page_config(layout="wide")
-st.title("Core Web Vitals Diagnostic Tool")
+st.set_page_config(page_title="CWV Monitor", layout="wide")
+st.title("🚀 Core Web Vitals Monitor")
 
-API_KEY = "YOUR_API_KEY"
+# ---------------- SAFE SECRET LOADER ---------------- #
 
-def get_psi_data(url, strategy):
-    endpoint = f"https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
+API_KEY = None
+try:
+    API_KEY = st.secrets["PAGESPEED_API_KEY"]
+except:
+    st.error("❌ PageSpeed API Key NOT FOUND")
+    st.stop()
+
+# ---------------------------------------------------- #
+
+# ----------- INPUT OPTIONS BACK AGAIN ----------- #
+
+st.subheader("Upload URLs")
+
+upload_col, paste_col = st.columns(2)
+
+urls = []
+
+with upload_col:
+    uploaded_file = st.file_uploader("Upload CSV (Column name must be: url)", type=["csv"])
+    if uploaded_file:
+        df_upload = pd.read_csv(uploaded_file)
+        if "url" in df_upload.columns:
+            urls = df_upload["url"].dropna().tolist()
+        else:
+            st.error("CSV must contain 'url' column")
+
+with paste_col:
+    text_urls = st.text_area("OR Paste URLs (one per line)")
+    if text_urls:
+        urls.extend(text_urls.split("\n"))
+
+urls = list(set([u.strip() for u in urls if u.strip() != ""]))
+
+# ---------------------------------------------- #
+
+strategies = ["mobile", "desktop"]
+
+def get_priority(lcp, cls, inp):
+    score = 0
+    if lcp > 4: score += 3
+    elif lcp > 2.5: score += 2
+
+    if cls > 0.25: score += 3
+    elif cls > 0.1: score += 2
+
+    if inp > 500: score += 3
+    elif inp > 200: score += 2
+
+    if score >= 6: return "🔥 High"
+    elif score >= 3: return "⚠️ Medium"
+    else: return "✅ Low"
+
+def root_cause(lcp, cls, inp):
+    issues = []
+    if lcp > 2.5:
+        issues.append("Slow LCP → Optimize images/server")
+    if cls > 0.1:
+        issues.append("Layout Shift → Fix dimensions/fonts")
+    if inp > 200:
+        issues.append("High INP → Reduce JS execution")
+    return ", ".join(issues)
+
+def check_cwv(url, strategy):
+
+    endpoint = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
     params = {
         "url": url,
         "strategy": strategy,
-        "key": API_KEY
-    }
-    response = requests.get(endpoint, params=params)
-    return response.json()
-
-def extract_metrics(data):
-    audits = data['lighthouseResult']['audits']
-
-    metrics = {
-        "LCP": audits['largest-contentful-paint']['displayValue'],
-        "CLS": audits['cumulative-layout-shift']['displayValue'],
-        "INP": audits.get('interactive', {}).get('displayValue', "NA"),
-        "FCP": audits['first-contentful-paint']['displayValue'],
-        "TBT": audits['total-blocking-time']['displayValue'],
-        "Speed Index": audits['speed-index']['displayValue']
+        "key": API_KEY,
+        "category": "performance"
     }
 
-    scores = {
-        "LCP": audits['largest-contentful-paint']['score'],
-        "CLS": audits['cumulative-layout-shift']['score'],
-        "INP": audits.get('interactive', {}).get('score', 0),
-        "FCP": audits['first-contentful-paint']['score'],
-        "TBT": audits['total-blocking-time']['score'],
-        "Speed Index": audits['speed-index']['score']
-    }
+    try:
+        r = requests.get(endpoint, params=params).json()
+        audits = r["lighthouseResult"]["audits"]
+        score = r["lighthouseResult"]["categories"]["performance"]["score"] * 100
 
-    return metrics, scores
+        lcp = audits["largest-contentful-paint"]["numericValue"] / 1000
+        cls = audits["cumulative-layout-shift"]["numericValue"]
+        inp = audits.get("interaction-to-next-paint", {}).get("numericValue", 0)
 
+        return {
+            "URL": url,
+            "Device": strategy,
+            "Score": round(score, 0),
+            "LCP": round(lcp, 2),
+            "CLS": round(cls, 2),
+            "INP": round(inp, 0),
+            "LCP ❌": "❌" if lcp > 2.5 else "✅",
+            "CLS ❌": "❌" if cls > 0.1 else "✅",
+            "INP ❌": "❌" if inp > 200 else "✅",
+            "Fix Priority": get_priority(lcp, cls, inp),
+            "Issue Caused By": root_cause(lcp, cls, inp),
+            "Date": datetime.now().date()
+        }
 
-def status_icon(score):
-    if score >= 0.9:
-        return "🟢"
-    elif score >= 0.5:
-        return "🟠"
-    else:
-        return "🔴"
+    except:
+        return {"URL": url, "Device": strategy, "Score": 0}
 
+if urls:
 
-def priority(score):
-    if score >= 0.9:
-        return 1
-    elif score >= 0.5:
-        return 2
-    else:
-        return 3
+    st.info(f"Checking {len(urls)} URLs (Mobile + Desktop)...")
+    results = []
+    progress = st.progress(0)
 
+    total_tasks = len(urls) * 2
+    completed = 0
 
-def create_table(metrics, scores):
-    df = pd.DataFrame({
-        "Metric": metrics.keys(),
-        "Value": metrics.values(),
-        "Status": [status_icon(scores[m]) for m in metrics.keys()],
-        "Fix Priority": [priority(scores[m]) for m in metrics.keys()]
-    }).sort_values(by="Fix Priority", ascending=False)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = []
+        for u in urls:
+            for s in strategies:
+                futures.append(executor.submit(check_cwv, u, s))
 
-    return df
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
+            completed += 1
+            progress.progress(completed / total_tasks)
 
+    df = pd.DataFrame(results)
 
-def root_cause(df):
-    causes = []
-    for _, row in df.iterrows():
-        if row['Status'] == "🔴":
-            if row['Metric'] == "LCP":
-                causes.append(["LCP", "Heavy Images / Slow Server Response"])
-            if row['Metric'] == "CLS":
-                causes.append(["CLS", "Layout Shift due to Ads/Fonts"])
-            if row['Metric'] == "INP":
-                causes.append(["INP", "Heavy JS Execution"])
-            if row['Metric'] == "TBT":
-                causes.append(["TBT", "Render Blocking JS"])
-            if row['Metric'] == "FCP":
-                causes.append(["FCP", "Unused CSS/JS"])
-            if row['Metric'] == "Speed Index":
-                causes.append(["Speed Index", "Above the Fold Delay"])
-    return pd.DataFrame(causes, columns=["Failing Metric", "Possible Cause"])
+    st.success("CWV Check Completed!")
 
-
-url = st.text_input("Enter URL")
-
-if st.button("Run CWV Test"):
-
-    mobile_data = get_psi_data(url, "mobile")
-    desktop_data = get_psi_data(url, "desktop")
-
-    mob_metrics, mob_scores = extract_metrics(mobile_data)
-    desk_metrics, desk_scores = extract_metrics(desktop_data)
-
-    mob_table = create_table(mob_metrics, mob_scores)
-    desk_table = create_table(desk_metrics, desk_scores)
+    mobile_df = df[df["Device"]=="mobile"]
+    desktop_df = df[df["Device"]=="desktop"]
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Mobile CWV Report")
-        st.table(mob_table)
+        st.subheader("📱 Mobile Report")
+        st.dataframe(mobile_df)
 
     with col2:
-        st.subheader("Desktop CWV Report")
-        st.table(desk_table)
+        st.subheader("💻 Desktop Report")
+        st.dataframe(desktop_df)
 
-    st.subheader("CWV Priority Chart")
+    st.subheader("📊 Average Performance Score")
+    st.bar_chart(df.groupby("Device")["Score"].mean())
 
-    chart_data = pd.DataFrame({
-        'Mobile': [priority(mob_scores[m]) for m in mob_metrics.keys()],
-        'Desktop': [priority(desk_scores[m]) for m in desk_metrics.keys()]
-    }, index=mob_metrics.keys())
-
-    fig, ax = plt.subplots()
-    chart_data.plot(kind='bar', ax=ax)
-    st.pyplot(fig)
-
-    st.subheader("Root Cause Detection")
-
-    mob_causes = root_cause(mob_table)
-    desk_causes = root_cause(desk_table)
-
-    col3, col4 = st.columns(2)
-
-    with col3:
-        st.write("Mobile Issues")
-        st.table(mob_causes)
-
-    with col4:
-        st.write("Desktop Issues")
-        st.table(desk_causes)
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download CSV Report",
+        csv,
+        f"cwv_report_{datetime.now().date()}.csv",
+        "text/csv"
+    )
